@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+import copy
 import time
 
 from dagster_graphql.client.util import pipeline_run_from_execution_params
@@ -90,52 +91,72 @@ def start_scheduled_execution(graphene_info, schedule_name):
             'True'
         )
 
+    partitions = schedule_def.schedule.partitions()
     environment_dict_fn = schedule_def.environment_dict_fn
-    if environment_dict_fn:
-        schedule_def.execution_params['environmentConfigData'] = environment_dict_fn()
 
-    # Add dagster/schedule_id tag to executionMetadata
-    execution_params = merge_dicts(
-        {'executionMetadata': {'tags': []}}, schedule_def.execution_params
-    )
+    def partition_does_not_exist(unit):
+        runs_count = graphene_info.context.instance.get_run_count_with_matching_tags(
+            [
+                ('dagster/schedule_id', schedule.schedule_id),
+                ('dagster/schedule_partition', schedule_def.schedule.partition_to_string(unit)),
+            ]
+        )
 
-    # Check that the dagster/schedule_id tag is not already set
-    check.invariant(
-        not any(
-            tag['key'] == 'dagster/schedule_id'
-            for tag in execution_params['executionMetadata']['tags']
-        ),
-        "Tag dagster/schedule_id tag is already defined in executionMetadata.tags",
-    )
+        return runs_count == 0
 
-    # Check that the dagster/schedule_name tag is not already set
-    check.invariant(
-        not any(
-            tag['key'] == 'dagster/schedule_name'
-            for tag in execution_params['executionMetadata']['tags']
-        ),
-        "Tag dagster/schedule_name tag is already defined in executionMetadata.tags",
-    )
+    for partition in partitions:
+        if partition_does_not_exist(partition):
+            execution_params = copy.deepcopy(schedule_def.execution_params)
+            if environment_dict_fn:
+                execution_params['environmentConfigData'] = environment_dict_fn(partition)
 
-    execution_params['executionMetadata']['tags'].append(
-        {'key': 'dagster/schedule_id', 'value': schedule.schedule_id}
-    )
+            # Add dagster/schedule_id tag to executionMetadata
+            execution_params = merge_dicts({'executionMetadata': {'tags': []}}, execution_params)
 
-    execution_params['executionMetadata']['tags'].append(
-        {'key': 'dagster/schedule_name', 'value': schedule.name}
-    )
+            # Check that the dagster/schedule_id tag is not already set
+            check.invariant(
+                not any(
+                    tag['key'] == 'dagster/schedule_id'
+                    for tag in execution_params['executionMetadata']['tags']
+                ),
+                "Tag dagster/schedule_id tag is already defined in executionMetadata.tags",
+            )
 
-    selector = execution_params['selector']
-    execution_params = ExecutionParams(
-        selector=ExecutionSelector(selector['name'], selector.get('solidSubset')),
-        environment_dict=execution_params.get('environmentConfigData'),
-        mode=execution_params.get('mode'),
-        execution_metadata=create_execution_metadata(execution_params.get('executionMetadata')),
-        step_keys=execution_params.get('stepKeys'),
-        previous_run_id=None,
-    )
+            # Check that the dagster/schedule_name tag is not already set
+            check.invariant(
+                not any(
+                    tag['key'] == 'dagster/schedule_name'
+                    for tag in execution_params['executionMetadata']['tags']
+                ),
+                "Tag dagster/schedule_name tag is already defined in executionMetadata.tags",
+            )
 
-    return start_pipeline_execution(graphene_info, execution_params)
+            execution_params['executionMetadata']['tags'].extend(
+                [
+                    {'key': 'dagster/schedule_id', 'value': schedule.schedule_id},
+                    {'key': 'dagster/schedule_name', 'value': schedule.name},
+                    {
+                        'key': 'dagster/schedule_partition',
+                        'value': schedule_def.schedule.partition_to_string(partition),
+                    },
+                ]
+            )
+
+            selector = execution_params['selector']
+            execution_params = ExecutionParams(
+                selector=ExecutionSelector(selector['name'], selector.get('solidSubset')),
+                environment_dict=execution_params.get('environmentConfigData'),
+                mode=execution_params.get('mode'),
+                execution_metadata=create_execution_metadata(
+                    execution_params.get('executionMetadata')
+                ),
+                step_keys=execution_params.get('stepKeys'),
+                previous_run_id=None,
+            )
+
+            result = start_pipeline_execution(graphene_info, execution_params)
+
+    return result
 
 
 @capture_dauphin_error

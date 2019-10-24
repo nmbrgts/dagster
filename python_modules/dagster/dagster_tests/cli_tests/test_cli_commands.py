@@ -12,6 +12,7 @@ from dagster import (
     DagsterInvariantViolationError,
     RepositoryDefinition,
     ScheduleDefinition,
+    TimeBasedPartition,
     lambda_solid,
     pipeline,
     schedules,
@@ -582,10 +583,12 @@ def test_run_wipe_incorrect_delete_message():
 
 @schedules(scheduler=FilesytemTestScheduler)
 def define_bar_scheduler():
+    from datetime import datetime
+
     return [
         ScheduleDefinition(
             "foo_schedule",
-            cron_schedule="* * * * *",
+            schedule=TimeBasedPartition(start_date=datetime.today(), cron="* * * * *"),
             pipeline_name="test_pipeline",
             environment_dict={},
         )

@@ -122,5 +122,21 @@ def dash_stats():
     send_to_slack(bq_solid())
 
 
+@solid(config={'date': Field(str)}, required_resource_keys={'slack'})
+def something(context):
+    date = context.solid_config.get('date')
+
+    context.resources.slack.chat.post_message(
+        channel='#metrics-testing', text='This partiion was for: {date}'.format(date=date)
+    )
+
+
+@pipeline(mode_defs=[ModeDefinition(name='default', resource_defs={'slack': slack_resource})])
+def do_something():
+    something()
+
+
 def define_repo():
-    return RepositoryDefinition(name='experimental_repository', pipeline_defs=[dash_stats])
+    return RepositoryDefinition(
+        name='experimental_repository', pipeline_defs=[dash_stats, do_something]
+    )

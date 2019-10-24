@@ -1,8 +1,66 @@
+import abc
 from collections import namedtuple
+from datetime import datetime
+
+import six
+from croniter import croniter
 
 from dagster import check
 from dagster.core.errors import DagsterInvalidDefinitionError
 from dagster.core.serdes import whitelist_for_serdes
+
+
+class Partition(six.with_metaclass(abc.ABCMeta)):
+    @abc.abstractmethod
+    def partitions(self):
+        pass
+
+
+class CronSchedule(Partition):
+    def __init__(self, cron):
+        check.str_param(cron, 'cron')
+
+        self._cron = cron
+
+    def partitions(self):
+        current_time = datetime.today()
+        return [current_time]
+
+    @property
+    def cron_schedule(self):
+        return self._cron
+
+    def partition_to_string(self, partition):
+        return str(partition)
+
+
+class TimeBasedPartition(Partition):
+    def __init__(self, start_date, cron):
+        check.inst_param(start_date, 'start_date', datetime)
+        check.str_param(cron, 'cron')
+
+        self._start_date = start_date
+        self._cron = cron
+
+    def partitions(self):
+        current_time = datetime.today()
+
+        arr = []
+        itr = croniter(self._cron, start_time=self._start_date)
+
+        curr = itr.get_next(datetime)
+        while curr < current_time:
+            arr.append(curr)
+            curr = itr.get_next(datetime)
+
+        return arr
+
+    @property
+    def cron_schedule(self):
+        return self._cron
+
+    def partition_to_string(self, partition):
+        return str(partition)
 
 
 @whitelist_for_serdes
@@ -37,13 +95,15 @@ class ScheduleDefinition(object):
         '_execution_params',
         '_environment_dict_fn',
         '_should_execute',
+        '_schedule',
     ]
 
     def __init__(
         self,
         name,
-        cron_schedule,
         pipeline_name,
+        schedule=None,
+        cron_schedule=None,
         environment_dict=None,
         environment_dict_fn=None,
         tags=None,
@@ -51,9 +111,13 @@ class ScheduleDefinition(object):
         should_execute=lambda: True,
         environment_vars=None,
     ):
+
+        if cron_schedule:
+            schedule = CronSchedule(cron_schedule)
+
         self._schedule_definition_data = ScheduleDefinitionData(
             name=check.str_param(name, 'name'),
-            cron_schedule=check.str_param(cron_schedule, 'cron_schedule'),
+            cron_schedule=check.str_param(schedule.cron_schedule, 'cron_schedule'),
             environment_vars=check.opt_dict_param(environment_vars, 'environment_vars'),
         )
 
@@ -80,6 +144,12 @@ class ScheduleDefinition(object):
             'mode': mode,
         }
 
+        self._schedule = check.inst_param(schedule, 'schedule', Partition)
+        self._environment_dict_fn = check.opt_callable_param(
+            environment_dict_fn, 'environment_dict_fn'
+        )
+        self._should_execute = check.callable_param(should_execute, 'should_execute')
+
     @property
     def schedule_definition_data(self):
         return self._schedule_definition_data
@@ -91,6 +161,10 @@ class ScheduleDefinition(object):
     @property
     def cron_schedule(self):
         return self._schedule_definition_data.cron_schedule
+
+    @property
+    def schedule(self):
+        return self._schedule
 
     @property
     def environment_vars(self):
