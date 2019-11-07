@@ -444,3 +444,8 @@ Making New Types
 .. autofunction:: input_hydration_config
 
 .. autofunction:: output_materialization_config
+
+Testing new types
+^^^^^^^^^^^^^^^^^
+
+.. autofunction:: check_dagster_type
