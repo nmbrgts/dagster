@@ -23,10 +23,13 @@ class ScheduleDefinition(object):
 
     Args:
         name (str): The name of the schedule.
-        cron_schedule (str): The cron schedule for the schedule
-        execution_params (dict): The execution params for the schedule
-        should_execute (function): Function that returns True/False
-        environment_vars (dict): The environment variables to set for the schedule
+        cron_schedule (str): A valid cron string for the schedule
+        environment_dict (Optional[dict]) – The enviroment configuration that parameterizes this
+            execution, as a dict.
+        should_execute (Optional[function]): Function that runs at schedule execution time that
+            determines whether a schedule should execute. Defaults to a function that always returns
+            ``True``.
+        environment_vars (Optional[dict]): The environment variables to set for the schedule
     '''
 
     __slots__ = [
