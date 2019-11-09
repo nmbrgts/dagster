@@ -4,6 +4,7 @@ import inspect
 import multiprocessing
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -15,6 +16,7 @@ from six.moves import configparser
 
 from dagster import check
 from dagster.core.errors import DagsterInvariantViolationError
+from dagster.seven import IS_WINDOWS, thread
 from dagster.seven.abc import Mapping
 
 from .subprocess_pdb import ForkedPdb
@@ -294,3 +296,25 @@ def touch_file(path):
 
 
 pdb = ForkedPdb()
+
+# Function to be invoked by daemon thread in processes which seek to be cancellable.
+# The motivation for this approach is to be able to exit cleanly on Windows. An alternative
+# path is to change how the processes are opened and send CTRL_BREAK signals, which at
+# the time of authoring seemed a more costly approach.
+#
+# Reading for the curious:
+#  * https://stackoverflow.com/questions/35772001/how-to-handle-the-signal-in-python-on-windows-machine
+#  * https://stefan.sofa-rockers.org/2013/08/15/handling-sub-process-hierarchies-python-linux-os-x/
+def termination_thread(termination_event):
+    check.inst_param(
+        termination_event, 'termination_event', ttype=type(get_multiprocessing_context().Event())
+    )
+
+    termination_event.wait()
+    if IS_WINDOWS:
+        # This will raise a KeyboardInterrupt in python land - meaning this wont be able to interrupt
+        # things like sleep()
+        thread.interrupt_main()
+    else:
+        # If on unix send an os level signal to interrupt any situation we may be stuck in
+        os.kill(os.getpid(), signal.SIGINT)
