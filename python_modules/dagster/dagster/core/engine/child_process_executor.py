@@ -80,8 +80,8 @@ PROCESS_DEAD_AND_QUEUE_EMPTY = 'PROCESS_DEAD_AND_QUEUE_EMPTY'
 def _poll_for_event(process, queue):
     try:
         return queue.get(block=True, timeout=TICK)
-    except KeyboardInterrupt as e:
-        return e
+    # except KeyboardInterrupt as e:
+    #     return e
     except multiprocessing.queues.Empty:
         if not process.is_alive():
             # There is a possibility that after the last queue.get the
